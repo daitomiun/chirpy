@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/daitonium/chirpy/internal/database"
+	"github.com/google/uuid"
 	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
-
-	"github.com/daitonium/chirpy/internal/database"
 )
 
 type apiConfig struct {
@@ -56,27 +56,23 @@ func handlerCheckHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
-	type successRes struct {
-		CleanedBody string `json:"cleaned_body"`
-	}
+type chirpParams struct {
+	Body   string `json:"body"`
+	UserId string `json:"user_id"`
+}
 
-	type parameters struct {
-		Data string `json:"body"`
-	}
-	chirp := parameters{}
+func isValidChirp(chirp *chirpParams, w http.ResponseWriter, r *http.Request) bool {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&chirp); err != nil {
 		log.Printf("Error decoding chirp: %s  \n", err)
 		respondWithError(w, http.StatusInternalServerError, "Could not decode params", err)
-		return
+		return false
 	}
-	if len(chirp.Data) > 140 {
+	if len(chirp.Body) > 140 {
 		respondWithError(w, http.StatusBadRequest, "Chirpy is too long", nil)
-		return
+		return false
 	}
-
-	respondWithJSON(w, http.StatusOK, successRes{CleanedBody: replaceBadWords(chirp.Data)})
+	return true
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string, err error) {
@@ -148,5 +144,74 @@ func (apiCfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email,
 	})
+}
 
+func (apiCfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
+	chirpParams := chirpParams{}
+	if !isValidChirp(&chirpParams, w, r) {
+		return
+	}
+	userId, err := uuid.Parse(chirpParams.UserId)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Not valid uuid for user", err)
+	}
+
+	user, err := apiCfg.database.GetUserById(context.Background(), userId)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "User not found", err)
+	}
+
+	chirp, err := apiCfg.database.CreateChirp(context.Background(), database.CreateChirpParams{Body: replaceBadWords(chirpParams.Body), UserID: user.ID})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not create chirp", err)
+	}
+
+	respondWithJSON(w, http.StatusCreated, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserId:    chirp.UserID,
+	})
+}
+
+func (apiCfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := apiCfg.database.GetAllChirps(context.Background())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not get chirps", err)
+	}
+	respondWithJSON(w, http.StatusOK, chirpsResponse(chirps))
+}
+
+func chirpsResponse(chirps []database.Chirp) []Chirp {
+	chirpsResponse := make([]Chirp, len(chirps))
+	for i, chirp := range chirps {
+		chirpsResponse[i] = Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserId:    chirp.UserID,
+		}
+	}
+	return chirpsResponse
+}
+
+func (apiCfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	chirpId, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Not valid uuid for chirp", err)
+	}
+
+	chirp, err := apiCfg.database.GetChirpById(context.Background(), chirpId)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "The chirp was not found", err)
+	}
+	respondWithJSON(w, http.StatusOK, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserId:    chirp.UserID,
+	})
 }

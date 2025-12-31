@@ -8,6 +8,8 @@ VALUES (
 )
 RETURNING *;
 
+-- name: GetUserById :one
+select * from users where id=$1;
 
 -- name: DeleteUsers :exec
 delete from users;
