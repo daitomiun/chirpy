@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/daitonium/chirpy/internal/auth"
 	"github.com/daitonium/chirpy/internal/database"
 	"github.com/google/uuid"
 	"log"
@@ -121,7 +122,8 @@ func replaceBadWords(sentence string) string {
 
 func (apiCfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	params := parameters{}
 	decoder := json.NewDecoder(r.Body)
@@ -132,7 +134,12 @@ func (apiCfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := apiCfg.database.CreateUser(context.Background(), params.Email)
+	hash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not create user", nil)
+	}
+
+	user, err := apiCfg.database.CreateUser(context.Background(), database.CreateUserParams{Email: params.Email, Password: hash})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Cannot insert user", nil)
 		return
@@ -154,16 +161,19 @@ func (apiCfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 	userId, err := uuid.Parse(chirpParams.UserId)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Not valid uuid for user", err)
+		return
 	}
 
 	user, err := apiCfg.database.GetUserById(context.Background(), userId)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "User not found", err)
+		return
 	}
 
 	chirp, err := apiCfg.database.CreateChirp(context.Background(), database.CreateChirpParams{Body: replaceBadWords(chirpParams.Body), UserID: user.ID})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not create chirp", err)
+		return
 	}
 
 	respondWithJSON(w, http.StatusCreated, Chirp{
@@ -179,6 +189,7 @@ func (apiCfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Requ
 	chirps, err := apiCfg.database.GetAllChirps(context.Background())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not get chirps", err)
+		return
 	}
 	respondWithJSON(w, http.StatusOK, chirpsResponse(chirps))
 }
@@ -201,11 +212,13 @@ func (apiCfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request
 	chirpId, err := uuid.Parse(r.PathValue("chirpID"))
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Not valid uuid for chirp", err)
+		return
 	}
 
 	chirp, err := apiCfg.database.GetChirpById(context.Background(), chirpId)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "The chirp was not found", err)
+		return
 	}
 	respondWithJSON(w, http.StatusOK, Chirp{
 		ID:        chirp.ID,
@@ -214,4 +227,41 @@ func (apiCfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request
 		Body:      chirp.Body,
 		UserId:    chirp.UserID,
 	})
+}
+
+func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	params := parameters{}
+	decoder := json.NewDecoder(r.Body)
+
+	if err := decoder.Decode(&params); err != nil {
+		log.Printf("Error decoding chirp: %s  \n", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not decode params", err)
+		return
+	}
+	user, err := apiCfg.database.GetUserByEmail(context.Background(), params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid username/password", nil)
+		return
+	}
+
+	match, err := auth.CheckPasswordHash(params.Password, user.Password)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid username/password", nil)
+		return
+	}
+	if !match {
+		respondWithError(w, http.StatusUnauthorized, "Invalid username/password", nil)
+		return
+	}
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+
 }

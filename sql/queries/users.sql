@@ -1,10 +1,11 @@
 -- name: CreateUser :one
-INSERT INTO users (id, created_at, updated_at, email)
+INSERT INTO users (id, created_at, updated_at, email, password)
 VALUES (
     gen_random_uuid(),
 		NOW(),
 		NOW(),
-    $1
+    $1,
+    $2
 )
 RETURNING *;
 
@@ -14,3 +15,5 @@ select * from users where id=$1;
 -- name: DeleteUsers :exec
 delete from users;
 
+-- name: GetUserByEmail :one
+select * from users where email=$1;

@@ -12,24 +12,31 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, created_at, updated_at, email)
+INSERT INTO users (id, created_at, updated_at, email, password)
 VALUES (
     gen_random_uuid(),
 		NOW(),
 		NOW(),
-    $1
+    $1,
+    $2
 )
-RETURNING id, created_at, updated_at, email
+RETURNING id, created_at, updated_at, email, password
 `
 
-func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
-	row := q.db.QueryRowContext(ctx, createUser, email)
+type CreateUserParams struct {
+	Email    string
+	Password string
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, createUser, arg.Email, arg.Password)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Email,
+		&i.Password,
 	)
 	return i, err
 }
@@ -43,8 +50,25 @@ func (q *Queries) DeleteUsers(ctx context.Context) error {
 	return err
 }
 
+const getUserByEmail = `-- name: GetUserByEmail :one
+select id, created_at, updated_at, email, password from users where email=$1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Password,
+	)
+	return i, err
+}
+
 const getUserById = `-- name: GetUserById :one
-select id, created_at, updated_at, email from users where id=$1
+select id, created_at, updated_at, email, password from users where id=$1
 `
 
 func (q *Queries) GetUserById(ctx context.Context, id uuid.UUID) (User, error) {
@@ -55,6 +79,7 @@ func (q *Queries) GetUserById(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Email,
+		&i.Password,
 	)
 	return i, err
 }
