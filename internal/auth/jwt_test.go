@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -9,18 +9,30 @@ import (
 )
 
 func TestMakeJWT(t *testing.T) {
-	id := uuid.New()
+	userId := uuid.New()
 	secret := "REMMY_WAS_HERE"
-	signedString, err := MakeJWT(id, secret, 5*time.Hour)
+	signedString, err := MakeJWT(userId, secret, 5*time.Hour)
 	if err != nil {
 		t.Errorf(`Could not create JWT err: %v`, err)
 	}
-	fmt.Printf("Signed string: %s", signedString)
 	validId, err := ValidateJWT(signedString, secret)
 	if err != nil {
 		t.Errorf(`JWT is not valid err: %v`, err)
 	}
-	if validId != id {
-		t.Errorf(`Ids do not match want: %s, have: %s`, id, validId)
+	if validId != userId {
+		t.Errorf(`Ids do not match want: %s, have: %s`, userId, validId)
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	newHeader := http.Header{}
+	newHeader.Set("Authorization", "Bearer elias")
+
+	tokenString, err := GetBearerToken(newHeader)
+	if err != nil {
+		t.Errorf(`Token does not exist err: %v`, err)
+	}
+	if tokenString != "elias" {
+		t.Errorf(`Invalid token want: 'elias', have: '%s'`, tokenString)
 	}
 }
