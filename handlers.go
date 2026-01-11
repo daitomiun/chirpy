@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -198,24 +199,41 @@ func (apiCfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (apiCfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Request) {
+	authorId := r.URL.Query().Get("author_id")
+	sortType := r.URL.Query().Get("sort")
+
 	chirps, err := apiCfg.database.GetAllChirps(context.Background())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not get chirps", err)
 		return
 	}
-	respondWithJSON(w, http.StatusOK, chirpsResponse(chirps))
+	respondWithJSON(w, http.StatusOK, chirpsResponse(chirps, authorId, sortType))
 }
 
-func chirpsResponse(chirps []database.Chirp) []Chirp {
-	chirpsResponse := make([]Chirp, len(chirps))
+func chirpsResponse(chirps []database.Chirp, author string, sortType string) []Chirp {
+	var chirpsResponse []Chirp
+
 	for i, chirp := range chirps {
-		chirpsResponse[i] = Chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserId:    chirp.UserID,
+		if len(author) == 0 {
+			chirpsResponse = append(chirpsResponse, Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserId:    chirp.UserID,
+			})
+		} else if author == chirps[i].UserID.String() {
+			chirpsResponse = append(chirpsResponse, Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserId:    chirp.UserID,
+			})
 		}
+	}
+	if sortType == "desc" {
+		sort.Slice(chirpsResponse, func(i, j int) bool { return chirpsResponse[i].CreatedAt.After(chirpsResponse[j].CreatedAt) })
 	}
 	return chirpsResponse
 }
