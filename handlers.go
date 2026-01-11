@@ -20,6 +20,7 @@ type apiConfig struct {
 	database       *database.Queries
 	platform       string
 	secret         string
+	apiKey         string
 }
 
 func (cfg *apiConfig) handlerResetMetrics(w http.ResponseWriter, r *http.Request) {
@@ -150,10 +151,11 @@ func (apiCfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	})
 }
 
@@ -288,6 +290,7 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		Email:        user.Email,
 		Token:        signedString,
 		RefreshToken: refreshToken.Token,
+		IsChirpyRed:  user.IsChirpyRed,
 	})
 
 }
@@ -373,10 +376,11 @@ func (apiCfg *apiConfig) handlerUpdateUser(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	respondWithJSON(w, http.StatusOK, User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	})
 
 }
@@ -413,5 +417,47 @@ func (apiCfg *apiConfig) handlerDeleteChirps(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (apiCfg *apiConfig) handlerUpgradeToChirpyRed(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	key, err := auth.GetApiKey(r.Header)
+
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+	if key != apiCfg.apiKey {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+	params := parameters{}
+	decoder := json.NewDecoder(r.Body)
+
+	if err := decoder.Decode(&params); err != nil {
+		log.Printf("Error decoding chirp: %s  \n", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not decode params", err)
+		return
+	}
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	userId, err := uuid.Parse(params.Data.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Not valid uuid for request", err)
+		return
+	}
+	if err := apiCfg.database.UpgradeUserToChirpyRed(context.Background(), userId); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot upgrade to chirpy red", err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -75,3 +75,13 @@ func MakeRefreshToken() (string, error) {
 
 	return hexString, nil
 }
+
+func GetApiKey(headers http.Header) (string, error) {
+	bearer := headers.Get("Authorization")
+	if len(bearer) == 0 {
+		return "", errors.New("Invalid Api key")
+	}
+	tokenString := strings.TrimSpace(strings.TrimPrefix(bearer, "ApiKey"))
+
+	return tokenString, nil
+}
